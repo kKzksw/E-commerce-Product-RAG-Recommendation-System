@@ -1,0 +1,19 @@
+mobile/
+.env
+__pycache__/
+*.pyc
+.DS_Store
+# venvs
+mobile/
+.venv/
+venv/
+
+# secrets
+.env
+
+# python junk
+__pycache__/
+*.pyc
+
+# mac
+.DS_Store
