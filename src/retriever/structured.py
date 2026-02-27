@@ -94,7 +94,7 @@ def _normalize_brand_token(s: str) -> str:
     t = str(s or "").strip().lower()
     if not t:
         return ""
-    # Match longer aliases first (e.g., "oneplus nord")
+    
     for alias in sorted(BRAND_ALIASES.keys(), key=len, reverse=True):
         if t == alias or t.startswith(alias + " ") or (" " + alias + " ") in (" " + t + " "):
             return BRAND_ALIASES[alias]
@@ -112,15 +112,13 @@ def _model_match_tokens(model_targets):
         for t in re.findall(r"[a-zA-Z0-9]+", str(m or "").lower()):
             if not t:
                 continue
-            # Keep distinctive tokens such as "s24", "14", "pixel", "redmi", etc.
             if t in generic:
                 continue
             if t in brand_like and len(t) > 3:
-                # Brand tokens are okay for broad matching but less distinctive than model tokens.
                 continue
             if any(ch.isdigit() for ch in t) or len(t) >= 3:
                 tokens.append(t)
-    # preserve order, de-dup
+
     return list(dict.fromkeys(tokens))
 
 
@@ -136,7 +134,6 @@ def structured_retrieval(product_df: pd.DataFrame, routing: Dict, top_k: int = 5
         except Exception:
             pass
 
-    # Brands filter
     brands = [x.strip() for x in _safe_list(routing.get("brands")) if isinstance(x, str) and x and x.strip()]
     if brands:
         brand_targets = []
@@ -147,17 +144,15 @@ def structured_retrieval(product_df: pd.DataFrame, routing: Dict, top_k: int = 5
         brand_targets = list(dict.fromkeys([b for b in brand_targets if b]))
         if brand_targets:
             brand_filtered = cand[cand["brand"].astype(str).isin(brand_targets)]
-            # If router extracted family/model names as brands (e.g., iPhone/Galaxy), do not hard-fail.
             if not brand_filtered.empty:
                 cand = brand_filtered
 
-    # Models filter (contains any of listed model strings)
     models = [
         x.strip()
         for x in _safe_list(routing.get("models"))
         if isinstance(x, str) and x and x.strip()
     ]
-    # Ignore generic phrases that are not actual product model names.
+
     models = [m for m in models if m.lower() not in GENERIC_MODEL_PHRASES]
     if models:
         import re
@@ -165,8 +160,7 @@ def structured_retrieval(product_df: pd.DataFrame, routing: Dict, top_k: int = 5
         pattern = "|".join([re.escape(m) for m in models if m])
         if pattern:
             model_filtered = cand[cand["model"].str.contains(pattern, case=False, regex=True)]
-            # Fallback token matching helps with noisy model strings (e.g., "sumsung s22")
-            # and partial compare queries where one model matches exactly but another doesn't.
+ 
             token_filtered = pd.DataFrame()
             mtoks = _model_match_tokens(models)
             if mtoks:
@@ -175,7 +169,6 @@ def structured_retrieval(product_df: pd.DataFrame, routing: Dict, top_k: int = 5
                     token_filtered = cand[cand["model"].astype(str).str.contains(token_pattern, case=False, regex=True)]
 
             if not model_filtered.empty:
-                # If comparing multiple models but exact match only caught one side, expand using token fallback.
                 if len(models) >= 2 and len(model_filtered) < 2 and not token_filtered.empty:
                     merged = pd.concat([model_filtered, token_filtered], axis=0)
                     cand = merged.loc[~merged.index.duplicated(keep="first")]
@@ -187,7 +180,6 @@ def structured_retrieval(product_df: pd.DataFrame, routing: Dict, top_k: int = 5
     spec_focus = [s for s in _safe_list(routing.get("spec_focus")) if isinstance(s, str)]
     cols = [SPEC_MAP[s] for s in spec_focus if s in SPEC_MAP]
 
-    # Adaptive battery threshold if battery emphasized
     if "battery" in spec_focus:
         if len(cand) > 0 and "battery_life_rating" in cand.columns:
             thr = cand["battery_life_rating"].quantile(0.70)
@@ -200,10 +192,7 @@ def structured_retrieval(product_df: pd.DataFrame, routing: Dict, top_k: int = 5
 
     if freshness_enabled:
         cand = cand.copy()
-        # Recency proxy:
-        # 1) latest review date (strongest, available in dataset)
-        # 2) model generation hint from model string (tie-breaker)
-        # 3) model year hint if present
+
         empty_num = pd.Series(index=cand.index, dtype="float64")
         empty_date = pd.Series(index=cand.index, dtype="datetime64[ns]")
         date_rank = _date_rank_pct(cand.get("latest_review_date", empty_date))

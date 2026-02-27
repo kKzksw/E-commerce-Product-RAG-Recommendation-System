@@ -23,16 +23,12 @@ from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 
-# ── EdenAI providers available for comparison ─────────────────────────────────
+
 AVAILABLE_PROVIDERS = [
-    "openai",       # GPT-4o / GPT-3.5
-    "google",       # Gemini Pro
-    "mistral",      # Mistral Large
-    "anthropic",    # Claude
-    "cohere",       # Command R+
+    "openai",     
 ]
 
-# ── Default test queries covering different intents ───────────────────────────
+
 DEFAULT_TEST_QUERIES = [
     {
         "id": "q1",
@@ -83,13 +79,13 @@ class RouterEvalResult:
     provider: str
     latency_s: float
     routing: Dict
-    # Accuracy scores (0-1)
+
     intent_correct: bool
     budget_correct: bool
-    spec_focus_recall: float   # fraction of expected specs found
-    brand_recall: float        # fraction of expected brands found
+    spec_focus_recall: float  
+    brand_recall: float     
     freshness_correct: bool
-    overall_score: float       # weighted average of the above
+    overall_score: float       
     error: Optional[str] = None
 
 
@@ -100,12 +96,12 @@ class ExplainerEvalResult:
     provider: str
     latency_s: float
     explanation: str
-    # Heuristic quality scores (0-1)
-    length_score: float        # penalise too short or too long
-    mentions_product: bool     # at least one product name in response
-    mentions_price: bool       # mentions price/budget
-    mentions_spec: bool        # mentions a spec relevant to the query
-    no_hallucination_flag: bool  # did not invent products not in candidates
+
+    length_score: float        
+    mentions_product: bool    
+    mentions_price: bool      
+    mentions_spec: bool      
+    no_hallucination_flag: bool  
     overall_score: float
     error: Optional[str] = None
 
@@ -126,10 +122,8 @@ class MultiModelReport:
 def _score_router(routing: Dict, expected: Dict) -> Tuple[bool, bool, float, float, bool, float]:
     """Return (intent_ok, budget_ok, spec_recall, brand_recall, freshness_ok, overall)."""
 
-    # Intent
     intent_ok = routing.get("intent", "").upper() == expected.get("expected_intent", "RECOMMEND").upper()
 
-    # Budget (within 5% tolerance)
     exp_budget = expected.get("expected_budget")
     got_budget = routing.get("budget_usd")
     if exp_budget is None:
@@ -140,15 +134,14 @@ def _score_router(routing: Dict, expected: Dict) -> Tuple[bool, bool, float, flo
         except Exception:
             budget_ok = False
 
-    # Spec focus recall
     exp_specs = [s.lower() for s in (expected.get("expected_spec_focus") or [])]
     got_specs = [s.lower() for s in (routing.get("spec_focus") or [])]
     if exp_specs:
         spec_recall = len(set(exp_specs) & set(got_specs)) / len(exp_specs)
     else:
-        spec_recall = 1.0 if not got_specs else 0.8  # small penalty for spurious specs
+        spec_recall = 1.0 if not got_specs else 0.8  
 
-    # Brand recall
+
     exp_brands = [b.lower() for b in (expected.get("expected_brands") or [])]
     got_brands = [b.lower() for b in (routing.get("brands") or [])]
     if exp_brands:
@@ -156,11 +149,11 @@ def _score_router(routing: Dict, expected: Dict) -> Tuple[bool, bool, float, flo
     else:
         brand_recall = 1.0
 
-    # Freshness
+
     exp_fresh = expected.get("expected_freshness", "none")
     freshness_ok = routing.get("freshness_pref", "none") == exp_fresh
 
-    # Weighted overall
+
     overall = (
         0.30 * float(intent_ok) +
         0.25 * float(budget_ok) +
@@ -178,9 +171,9 @@ def evaluate_router_single(
     provider: str,
 ) -> RouterEvalResult:
     """Run router for one query/provider and return scored result."""
-    from .edenai import eden_generate  # lazy import
+    from .edenai import eden_generate 
 
-    # We call llm_route directly so we can time it
+
     try:
         from ..agent.router import llm_route
         t0 = time.time()
@@ -218,14 +211,14 @@ def evaluate_router_single(
 def _score_explanation(
     explanation: str,
     query: str,
-    candidate_products: List[str],   # list of product model names in top results
+    candidate_products: List[str],  
     expected: Dict,
 ) -> Tuple[float, bool, bool, bool, bool, float]:
     """Return (length_score, mentions_product, mentions_price, mentions_spec, no_hallucination, overall)."""
     text = (explanation or "").lower()
     words = len(text.split())
 
-    # Length: ideal 80-300 words
+
     if words < 20:
         length_score = 0.2
     elif words < 50:
@@ -235,13 +228,11 @@ def _score_explanation(
     else:
         length_score = max(0.5, 1.0 - (words - 300) / 500)
 
-    # Product mention
+
     mentions_product = any(p.lower() in text for p in candidate_products) if candidate_products else True
 
-    # Price mention
     mentions_price = bool(re.search(r"\$\d+|usd|\bprice\b|\bcost\b|\bbudget\b", text))
 
-    # Spec mention
     spec_keywords = {
         "camera": ["camera", "photo", "image quality"],
         "battery": ["battery", "charge", "backup"],
@@ -256,9 +247,8 @@ def _score_explanation(
             for s in focus_specs
         )
     else:
-        mentions_spec = True   # no spec constraint → give credit
+        mentions_spec = True   
 
-    # Hallucination proxy: check if explanation invents brand names not in candidates
     known_brands = {"samsung", "apple", "google", "xiaomi", "oneplus", "motorola",
                     "realme", "oppo", "vivo", "nokia", "sony", "huawei"}
     mentioned_brands = {b for b in known_brands if b in text}
@@ -324,7 +314,7 @@ def run_multi_model_eval(
     test_queries: Optional[List[Dict]] = None,
     eval_router: bool = True,
     eval_explainer: bool = True,
-    progress_callback=None,   # optional callable(msg: str) for Streamlit st.write
+    progress_callback=None,   
 ) -> MultiModelReport:
     """
     Run all test queries across all providers.
@@ -345,7 +335,7 @@ def run_multi_model_eval(
     from ..retriever.multi_source import multi_source_retrieval
 
     if providers is None:
-        providers = ["openai", "google", "mistral"]
+        providers = ["openai"]
     if test_queries is None:
         test_queries = DEFAULT_TEST_QUERIES
 
@@ -366,7 +356,6 @@ def run_multi_model_eval(
         for provider in providers:
             _log(f"  → Provider: {provider}")
 
-            # ── Router eval ──
             router_result = None
             if eval_router:
                 router_result = evaluate_router_single(qid, query, tq, provider)
@@ -378,10 +367,9 @@ def run_multi_model_eval(
                     + (f" | ERROR: {router_result.error}" if router_result.error else "")
                 )
 
-            # ── Explainer eval ──
             if eval_explainer:
                 routing = (router_result.routing if router_result else {}) or {}
-                # Retrieval (uses structured + multi-source, provider-agnostic)
+
                 try:
                     top_df = multi_source_retrieval(product_df, routing, query, top_k=3)
                 except Exception as e:
@@ -396,7 +384,7 @@ def run_multi_model_eval(
                     + (f" | ERROR: {exp_result.error}" if exp_result.error else "")
                 )
 
-    # ── Build summary ──
+
     report.summary = _build_summary(report, providers, test_queries)
     return report
 
@@ -420,7 +408,7 @@ def _build_summary(report: MultiModelReport, providers: List[str], test_queries:
             "queries_failed_explainer": sum(1 for r in report.explainer_results if r.provider == provider and r.error),
         }
 
-    # Best provider per component
+
     valid_router = {p: v["router_avg_score"] for p, v in summary["per_provider"].items() if v["router_avg_score"] is not None}
     valid_explainer = {p: v["explainer_avg_score"] for p, v in summary["per_provider"].items() if v["explainer_avg_score"] is not None}
 
@@ -461,7 +449,7 @@ def report_to_json(report: MultiModelReport) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Streamlit display helper (import optionally)
+# Streamlit display helper 
 # ─────────────────────────────────────────────────────────────────────────────
 
 def display_eval_report_streamlit(report: MultiModelReport):
@@ -528,7 +516,7 @@ def display_eval_report_streamlit(report: MultiModelReport):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CLI entry point (python -m src.utils.evaluation)
+# CLI entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -536,7 +524,7 @@ if __name__ == "__main__":
     import os
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-    from src.utils.data import load_product_df  # adjust if your loader is named differently
+    from src.utils.data import load_product_df  
 
     print("Loading data...")
     df = load_product_df()
@@ -553,7 +541,6 @@ if __name__ == "__main__":
     print("\n=== SUMMARY ===")
     print(json.dumps(report.summary, indent=2))
 
-    # Save report
     out_path = "eval_report.json"
     with open(out_path, "w") as f:
         f.write(report_to_json(report))

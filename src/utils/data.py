@@ -7,8 +7,6 @@ import pandas as pd
 
 DATA_PATH = "data/mobile_reviews.csv"
 
-# Sentence-level embedding cache stored next to the data file.
-# Structure: { product_id: [{"sentence": str, "embedding": list[float]}, ...] }
 SENTENCE_EMBEDDING_CACHE_PATH = "data/sentence_embeddings.pkl"
 
 
@@ -145,40 +143,12 @@ def precompute_sentence_embeddings(
     force_recompute: bool = False,
     progress_callback=None,
 ) -> dict:
-    """
-    For each product, split all its reviews into sentences and compute
-    one embedding vector per sentence. Results are cached to disk.
-
-    Cache structure:
-    {
-        "Apple_iPhone14": [
-            {"sentence": "battery life is amazing", "embedding": [0.12, ...]},
-            {"sentence": "camera takes great photos", "embedding": [-0.34, ...]},
-            ...
-        ],
-        "Samsung_GalaxyS23": [...],
-        ...
-    }
-
-    At query time, only the candidate products' sentences are compared,
-    so we never scan all 125k sentences at once.
-
-    Parameters
-    ----------
-    product_df        : aggregated product DataFrame from load_product_data()
-    providers         : EdenAI provider string
-    force_recompute   : ignore on-disk cache and recompute everything
-    progress_callback : optional callable(str) for logging
-
-    Returns
-    -------
-    dict  product_id -> list of {"sentence": str, "embedding": list[float]}
-    """
-    from .edenai import eden_embed  # lazy import
+    from .edenai import eden_embed
 
     def _log(msg):
         if progress_callback:
             progress_callback(msg)
+        print(msg)
 
     cache = {} if force_recompute else _load_sentence_cache()
 
@@ -186,13 +156,10 @@ def precompute_sentence_embeddings(
     missing_ids = [pid for pid in all_ids if pid not in cache]
 
     if not missing_ids:
-        _log(f"Sentence embedding cache up to date ({len(cache)} products).")
+        _log(f"Cache up to date ({len(cache)} products).")
         return cache
 
-    _log(
-        f"Computing sentence embeddings for {len(missing_ids)} products "
-        f"(already cached: {len(cache)})..."
-    )
+    _log(f"Computing embeddings for {len(missing_ids)} products...")
 
     id_to_row = {
         str(row["product_id"]): row
@@ -201,47 +168,39 @@ def precompute_sentence_embeddings(
         ].iterrows()
     }
 
-    # Collect all (product_id, sentence) pairs for missing products
-    pid_sentence_pairs = []
-    for pid in missing_ids:
+    SAVE_EVERY = 20
+
+    for i, pid in enumerate(missing_ids):
         row = id_to_row[pid]
         reviews = row.get("review_text")
         if not isinstance(reviews, list):
             reviews = [str(reviews)] if reviews is not None else []
-        for review in reviews:
+
+        pid_sentences = []
+        for review in reviews[:5]:
             for sentence in split_sentences(str(review)):
-                pid_sentence_pairs.append((pid, sentence))
+                pid_sentences.append(sentence)
 
-    if not pid_sentence_pairs:
-        _log("No sentences found for missing products.")
-        return cache
+        if not pid_sentences:
+            cache[pid] = []
+            continue
 
-    _log(f"Total sentences to embed: {len(pid_sentence_pairs)}")
+        try:
+            embeddings = eden_embed(pid_sentences, providers=providers)
+            cache[pid] = [
+                {"sentence": s, "embedding": e}
+                for s, e in zip(pid_sentences, embeddings)
+            ]
+        except Exception as e:
+            _log(f"Error on {pid}: {e}")
+            continue
 
-    # Extract just the sentence strings for the API call
-    sentences = [s for _, s in pid_sentence_pairs]
+        if i % SAVE_EVERY == 0:
+            _save_sentence_cache(cache)
+            _log(f"Progress: {i}/{len(missing_ids)} products done")
 
-    # Call EdenAI — eden_embed handles internal batching of 100
-    try:
-        embeddings = eden_embed(sentences, providers=providers)
-    except Exception as e:
-        _log(f"Warning: sentence embedding failed: {e}. Semantic search disabled.")
-        return cache
-
-    # Group results back by product_id
-    # First initialise empty lists for all missing products
-    new_entries = {pid: [] for pid in missing_ids}
-    for (pid, sentence), embedding in zip(pid_sentence_pairs, embeddings):
-        new_entries[pid].append({"sentence": sentence, "embedding": embedding})
-
-    cache.update(new_entries)
     _save_sentence_cache(cache)
-
-    total_sentences = sum(len(v) for v in new_entries.values())
-    _log(
-        f"Done. {total_sentences} sentences embedded across "
-        f"{len(missing_ids)} products. Cache saved."
-    )
+    _log(f"Done. {len(cache)} products cached.")
     return cache
 
 

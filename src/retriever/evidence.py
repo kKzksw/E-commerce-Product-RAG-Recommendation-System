@@ -3,7 +3,6 @@ import re
 
 
 def _sent_tokenize(text: str):
-    # very small sentence splitter
     parts = re.split(r"(?<=[.!?])\s+", text.strip())
     return [p.strip() for p in parts if p.strip()]
 
@@ -23,7 +22,6 @@ def extract_evidence_simple(query: str, reviews: List[str], k: int = 5):
                 scored.append((score, s))
 
     if not scored:
-        # fallback to first k review sentences
         fallbacks = []
         for r in reviews[:k]:
             sents = _sent_tokenize(r)
@@ -34,7 +32,6 @@ def extract_evidence_simple(query: str, reviews: List[str], k: int = 5):
         scored.sort(key=lambda x: x[0], reverse=True)
         snippets = [s for _, s in scored[:k]]
 
-    # truncate
     out = []
     for s in snippets:
         if len(s) > 220:

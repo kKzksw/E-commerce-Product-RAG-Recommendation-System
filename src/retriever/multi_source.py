@@ -116,7 +116,6 @@ def _score_reviews_semantic(
 
     avg_sim = sum(top_scores) / len(top_scores)
     volume_bonus = min(1.0, len(scored) / 8.0)
-    # 0.7 weight on average similarity of top sentences, 0.3 on match volume
     review_score = float(min(1.0, 0.7 * avg_sim + 0.3 * volume_bonus))
 
     return {
@@ -216,7 +215,7 @@ def _score_reviews_keyword(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Description scoring (keyword, lightweight — no API needed)
+# Description scoring
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _score_description(query_tokens: set, description_text: str) -> Dict:
@@ -324,14 +323,14 @@ def multi_source_retrieval(
     sentence_cache = sentence_cache or {}
     candidate_k = min(max(candidate_k, top_k), len(product_df))
 
-    # ── Stage 1: structured retrieval narrows the search space ───────────────
+    # structured retrieval narrows the search space
     candidates = structured_retrieval(product_df, routing, top_k=candidate_k)
     if candidates.empty:
         return candidates
 
     candidates = _compute_structured_signal(candidates, routing)
 
-    # ── Stage 2: embed the query (one API call) ───────────────────────────────
+    # embed the query 
     query_embedding = None
     use_semantic = bool(sentence_cache)
 
@@ -343,8 +342,7 @@ def multi_source_retrieval(
             print(f"Warning: query embedding failed, using keyword fallback. Error: {e}")
             use_semantic = False
 
-    # ── Stage 3: score each candidate ────────────────────────────────────────
-    # q_tokens is always computed: used for description scoring + keyword fallback
+    # score each candidate
     q_tokens = _query_token_set(query, routing)
 
     review_scores = []
@@ -353,15 +351,11 @@ def multi_source_retrieval(
     for _, row in candidates.iterrows():
         pid = str(row.get("product_id", ""))
 
-        # Review relevance
         if use_semantic and query_embedding:
-            # Sentence-level semantic scoring against precomputed cache.
-            # Only compares sentences for this one product — fast.
             review_info = _score_reviews_semantic(
                 query_embedding, pid, sentence_cache
             )
             if review_info is None:
-                # Product missing from cache — keyword fallback for this product
                 reviews = row.get("review_text")
                 if not isinstance(reviews, list):
                     reviews = [str(reviews)] if reviews is not None else []
@@ -374,7 +368,6 @@ def multi_source_retrieval(
 
         review_scores.append(review_info)
 
-        # Description relevance (keyword, no API)
         desc_text = row.get("product_description_text") or ""
         if not desc_text:
             desc_text = f"{row.get('brand', '')} {row.get('model', '')}"
@@ -384,7 +377,7 @@ def multi_source_retrieval(
     desc_df = pd.DataFrame(desc_scores, index=candidates.index)
     fused = pd.concat([candidates, review_df, desc_df], axis=1)
 
-    # ── Stage 4: dynamic weight fusion ───────────────────────────────────────
+    # dynamic weight fusion
     has_review = float(fused["review_relevance_score"].sum()) > 0.0
     has_desc = float(fused["description_relevance_score"].sum()) > 0.0
 
@@ -421,7 +414,7 @@ def multi_source_retrieval(
     fused = fused.sort_values(sort_cols, ascending=[False, False, True])
     top = fused.head(top_k).copy()
 
-    # ── Stage 5: LLM-generated review insights for final results ─────────────
+    # LLM-generated review insights for final results
     insight_rows = []
     for _, row in top.iterrows():
         reviews = row.get("review_text")

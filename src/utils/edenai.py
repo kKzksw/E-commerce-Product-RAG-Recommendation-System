@@ -105,14 +105,17 @@ def eden_embed(
             raise RuntimeError(f"EdenAI Embedding HTTP error: {e} - {resp.text}")
 
         data = resp.json()
-        provider = providers.split(",")[0].strip()
-        provider_out = data.get(provider) or {}
+        provider_key = providers.split(",")[0].strip()
+        provider_out = {}
+        for k, v in data.items():
+            if k.startswith(provider_key):
+                provider_out = v or {}
+                break
 
         if provider_out.get("status") != "success":
             raise RuntimeError(f"EdenAI embedding provider error: {provider_out}")
 
-        # EdenAI embedding response:
-        # {"items": [{"embedding": [0.12, -0.34, ...]}, ...]}
+
         items = provider_out.get("items") or []
         if len(items) != len(batch):
             raise RuntimeError(

@@ -39,7 +39,7 @@ def _product_label(row) -> str:
 
 def _fmt_price(value) -> str:
     try:
-        return f"${float(value):,.0f}"
+        return f"USD {float(value):,.0f}"
     except Exception:
         return "-"
 
@@ -147,8 +147,6 @@ def _render_top3_recommendation_cards(top_df, routing):
     rank_icons = {1: "🥇", 2: "🥈", 3: "🥉"}
     for rank, (col, (_, row)) in enumerate(zip(cols, top3.iterrows()), start=1):
         with col:
-            if rank == 1:
-                st.markdown("### 🎯 Top pick")
             st.markdown(f"**{rank_icons.get(rank, '•')} #{rank} {_product_label(row)}**")
             st.caption(
                 f"{_fmt_price(row.get('price_usd'))} | Rating {_fmt_score(row.get('rating'))}"
@@ -167,21 +165,21 @@ def _render_top3_recommendation_cards(top_df, routing):
             evidence = _safe_list(row.get("review_retrieval_snippets"))
 
             fit_bullets = _build_fit_bullets(row, routing, rank=rank, max_items=3)
-            st.write("Why it fits your needs")
+            st.markdown("**Why it fits your needs**")
             for b in fit_bullets or ["Good overall match for your query."]:
                 st.write(f"• {b}")
 
             if pros:
-                st.write("Review pros")
+                st.markdown("**Pros**")
                 for p in pros[:2]:
-                    st.write(f"+ {p}")
+                    st.markdown(f"<span style='color:green'>• {p}</span>", unsafe_allow_html=True)
             elif evidence:
-                st.write("Review evidence")
+                st.markdown("**🔍 Review evidence**")
                 st.write(f"• {evidence[0]}")
             if cons:
-                st.write("Review cons")
+                st.markdown("**Cons**")
                 for c in cons[:2]:
-                    st.write(f"- {c}")
+                    st.markdown(f"<span style='color:red'>• {c}</span>", unsafe_allow_html=True)    
 
 
 def _technical_table_columns(top_df, routing):
@@ -209,7 +207,9 @@ def _render_technical_details(top_df, routing):
         st.json(routing)
         st.write("Candidate table")
         cols = _technical_table_columns(top_df, routing)
-        st.dataframe(top_df[cols].reset_index(drop=True), use_container_width=True)
+        display_df = top_df[cols].copy()
+        display_df = display_df[[c for c in display_df.columns if not display_df[c].apply(lambda x: isinstance(x, list)).any()]]
+        st.dataframe(display_df.reset_index(drop=True), use_container_width=True)
         for _, row in top_df.iterrows():
             label = _product_label(row)
             st.markdown(f"---\n**{label}**")
@@ -296,7 +296,10 @@ def _render_recommend_mode(top_df, routing, explanation: str):
     st.subheader("Recommendation Mode")
     _render_top3_recommendation_cards(top_df, routing)
     st.markdown("### Personalized recommendation rationale")
-    st.markdown(explanation) if explanation else st.write("No explanation available.")
+    if explanation:
+        st.write(str(explanation).replace("$", "USD "))
+    else:
+        st.write("No explanation available.")
     _render_technical_details(top_df, routing)
 
 
@@ -331,12 +334,19 @@ def _render_compare_mode(top_df, routing, compare_result, explanation: str):
             st.caption("Why: " + ", ".join([str(r) for r in reasons[:4]]))
     else:
         st.write("No clear winner could be determined.")
+
     if explanation:
-        st.markdown(explanation)
-    st.write("3 key differences")
+        st.markdown("---")
+        for para in str(explanation).replace("$", "USD ").split("\n"):
+            if para.strip():
+                st.markdown(para.strip())
+        st.markdown("---")
+
+    st.markdown("**🔍 3 Key Differences**")
     diff_bullets = _key_difference_bullets(compare_result, max_items=3)
-    for b in diff_bullets or ["• The compared products are close; check expanded metrics."]:
-        st.write(f"• {b}")
+    for b in diff_bullets or ["The compared products are close; check expanded metrics."]:
+        st.markdown(f"<span style='font-size:15px'>▸ {b}</span>", unsafe_allow_html=True)
+
     with st.expander("Expand for metrics", expanded=False):
         comparison_rows = _safe_list((compare_result or {}).get("comparison_rows"))
         if comparison_rows:
@@ -353,9 +363,9 @@ def _render_compare_mode(top_df, routing, compare_result, explanation: str):
                     key=lambda x: x["weight"], reverse=True,
                 )
                 st.dataframe(pd.DataFrame(rows_w), use_container_width=True, hide_index=True)
+
     with st.expander("Expand for complaint analysis", expanded=False):
         _render_complaint_analysis(compare_result)
-
 
 def _render_compare_mode_unmatched(top_df, routing, explanation: str):
     st.subheader("Compare Mode")
@@ -376,7 +386,7 @@ def _render_compare_mode_unmatched(top_df, routing, explanation: str):
 if "product_df" not in st.session_state:
     with st.spinner("Loading product data..."):
         st.session_state.product_df, _ = load_product_data()
-    st.success(f"Product data loaded! ({len(st.session_state.product_df)} products)")
+    st.success(f"Product data loaded! ")
 
 if "sentence_cache" not in st.session_state:
     with st.spinner(
@@ -393,8 +403,7 @@ if "sentence_cache" not in st.session_state:
             len(v) for v in st.session_state.sentence_cache.values()
         )
         st.success(
-            f"Semantic search ready — {total_sentences:,} sentences indexed "
-            f"across {n} products."
+            f"Semantic search ready"
         )
     else:
         st.warning(
@@ -437,7 +446,7 @@ query = st.text_input(
     value="Recommend a phone under $600 with good battery life",
     help="Examples: 'Best camera phone under $800' or 'Compare iPhone 14 vs Galaxy S24'",
 )
-providers = st.selectbox("LLM Provider:", ["openai", "mistral"], index=0)
+providers = st.selectbox("LLM Provider:", ["openai"], index=0)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Main query flow
@@ -492,6 +501,8 @@ if st.button("🔍 Analyze", use_container_width=True):
                     _render_recommend_mode(top, routing, explanation)
 
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             msg = str(e)
             st.error(f"⚠️ Error: {msg}")
             msg_lower = msg.lower()

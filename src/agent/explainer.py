@@ -255,7 +255,7 @@ def llm_explain(query: str, routing: Dict, top_df, providers: str = "openai", co
 
     # Preemptively shrink prompt for small-context provider backends.
     approx_prompt_tokens = max(1, len(prompt) // 4)
-    max_completion_tokens = 320 if is_compare else 280
+    max_completion_tokens = 500 if is_compare else 400
     if approx_prompt_tokens + max_completion_tokens > 3300:
         products = _compact_candidate_rows(query, routing, top_df, max_items=(2 if is_compare else 3), minimal=True)
         compare_payload = _compact_compare_result(compare_result, minimal=True)
